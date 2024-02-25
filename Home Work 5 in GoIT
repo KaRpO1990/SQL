@@ -1,3 +1,4 @@
+
 with join_table as (
 	select	fabd.ad_date as date,
 		    fabd.url_parameters, 
