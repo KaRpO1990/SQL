@@ -1,0 +1,41 @@
+with first_tab as (
+					select 
+						   distinct (to_char(payment_date,'YYYY-MM-01'))::date 									            as calendar_month,
+						   user_id,
+						   revenue_amount_usd 																	                            as mrr,
+						   min((to_char(payment_date,'YYYY-MM-01'))) over (partition by user_ID)::date 	 		as first_payment_month,
+						   max((to_char(payment_date,'YYYY-MM-01'))) over (partition by user_id)::date 			as end_payment_month
+					from project.games_payments
+), t2 as (
+			select 	calendar_month,
+					user_id,
+					first_payment_month,
+					end_payment_month,
+					sum(mrr) 																								                                                  as mrr,
+					lag(sum(mrr)) over (partition by user_id order by (calendar_month))										                    as previous_mrr,
+				   	datediff('month',lag(calendar_month) over (partition by user_id order by calendar_month),calendar_month)as diff_month
+			from first_tab
+			group by user_id, calendar_month,first_payment_month,end_payment_month
+)
+select 
+		calendar_month 																				                                  as calendar_month,
+		t2.user_id																					                                    as user_id,				        --remove these lines
+	   	first_payment_month 																		                              as first_payment_month,	  --to group 
+		end_payment_month																			                                  as end_payment_month,	    --by month
+		sum(mrr)																					                                      as mrr,
+		count(distinct t2.user_id) 																	                            as paid_users,
+		round(sum(mrr)/count(distinct t2.user_id),2) 												                    as arppu,
+		count(distinct(case when first_payment_month =  calendar_month then  t2.user_id end)) 	as new_paid_users,
+		sum(case when calendar_month = first_payment_month then mrr end) 							          as new_mrr,
+		count(distinct(case when calendar_month = end_payment_month then  t2.user_id end)) 			as churned_users,
+		round(count(distinct(case when calendar_month = end_payment_month then  t2.user_id end))
+						  *1.00/lag(count(distinct t2.user_id)) over (order by  calendar_month),2)	    as churn_rate,
+		sum(case when  calendar_month = end_payment_month then 0-mrr end) 							        as churned_revenue,
+		round(sum(case when  calendar_month = end_payment_month then 0-mrr end)/
+						   					lag(sum(mrr)) over (order by  calendar_month),2)		                as revenue_charn_rate,
+		sum(case when mrr >previous_mrr and diff_month=1 then mrr-previous_mrr end) 				    as expansion_mrr,
+		sum(case when mrr < previous_mrr and diff_month=1 then mrr-previous_mrr end)				    as contraction_mrr
+from t2
+left join project.games_paid_users gpu on t2.user_id = gpu.user_id
+group by calendar_month,/*!*/first_payment_month,end_payment_month,t2.user_id													                --and the last 3 from the grouping
+order by calendar_month asc;	
