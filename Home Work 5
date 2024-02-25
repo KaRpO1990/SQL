@@ -1,0 +1,79 @@
+with join_table as (
+	select	fabd.ad_date as date,
+		    fabd.url_parameters, 
+		    coalesce (fabd.spend,'0') as spend, 
+		    coalesce (fabd.impressions,'0') as impressions,
+		    coalesce (fabd.reach,'0') as reach, 
+		    coalesce (fabd.clicks,'0') as clicks,
+		    coalesce (fabd.leads,'0') as leads,
+	        coalesce (fabd.value,'0') as value
+	 from   facebook_ads_basic_daily fabd 
+left join   facebook_campaign fc on fabd.campaign_id=fc.campaign_id 
+left join   facebook_adset fa on fabd.adset_id=fa.adset_id
+union all
+   select   gabd.ad_date as date, 
+			gabd.url_parameters,
+			coalesce (gabd.spend,'0') as spend,
+			coalesce (gabd.impressions,'0') as impressions,
+			coalesce (gabd.reach,'0') as reach,
+			coalesce (gabd.clicks,'0') as clicks,
+			coalesce (gabd.leads,'0') as leads,
+			coalesce (gabd.value,'0') as value
+	 from   google_ads_basic_daily gabd
+)
+select  	 jt.date,
+			 urldecode_Karpinskyi (nullif (lower(substring(jt.url_parameters,'utm_campaign=([^$#&]+)')),'nan')) as utm_campaign,
+			 sum (jt.spend) as spend,
+			 sum (jt.impressions) as impressions,
+			 sum (jt.clicks) as clicks,
+			 sum (jt.value) as value,
+case when    sum(jt.impressions)=0 
+	then     sum(jt.impressions)
+		else(round (sum(jt.clicks)/sum(jt.impressions)::numeric,4)*100) 
+			end "CTR%",
+case when 	 sum(jt.clicks)=0 
+	then 	 sum(jt.clicks)
+		else round (sum(jt.spend)/sum(jt.clicks)::numeric,2)
+			end "CPC",
+case when 	 sum(jt.impressions)=0 
+	then 	 sum(jt.impressions)
+		else round (sum(jt.spend)/sum(jt.impressions)::numeric,2)*1000
+			end "CPM",
+case when 	 sum(jt.spend)=0 
+	then 	 sum(jt.spend)
+		else round ((sum(jt.value)-sum(jt.spend))/sum(jt.spend)::numeric,4)*100 
+			end "ROMI%"
+from 		 join_table as jt
+group by 	 jt.date, utm_campaign;
+
+/*bonus task*/
+
+CREATE OR REPLACE FUNCTION urldecode_Karpo(url text)
+  RETURNS text AS
+$BODY$
+DECLARE ret text;
+BEGIN
+ BEGIN
+	WITH STR AS (
+      SELECT
+      -- array with all non encoded parts, prepend with '' when the string start is encoded
+      case when $1 ~ '^%[0-9a-fA-F][0-9a-fA-F]' 
+           then array[''] 
+           end 
+      || regexp_split_to_array ($1,'(%[0-9a-fA-F][0-9a-fA-F])+', 'i') plain,
+       -- array with all encoded parts
+      array(select (regexp_matches ($1,'((?:%[0-9a-fA-F][0-9a-fA-F])+)', 'gi'))[1]) encoded
+    )
+    SELECT  string_agg(plain[i] || coalesce( convert_from(decode(replace(encoded[i], '%',''), 'hex'), 'utf8'),''),'')
+    FROM STR, 
+      (SELECT  generate_series(1, array_upper(encoded,1)+2) i FROM STR)blah
+    INTO ret;
+  EXCEPTION WHEN OTHERS THEN  
+    raise notice 'failed: %',url;
+    return $1;
+  END;   
+  RETURN coalesce(ret,$1); -- when the string has no encoding;
+  END;
+	$BODY$ LANGUAGE plpgsql IMMUTABLE strict;
+		
+
