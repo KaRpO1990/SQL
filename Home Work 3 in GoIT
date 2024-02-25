@@ -1,0 +1,42 @@
+with table_gabd_fabd as (
+select fabd.ad_date, fc.campaign_name, fa.adset_name, fabd.spend,
+fabd.impressions, fabd.reach, fabd.clicks, fabd.leads, fabd.value 
+from facebook_ads_basic_daily fabd
+join facebook_campaign fc on fc.campaign_id = fabd.campaign_id
+join facebook_adset fa on fa.adset_id = fabd.adset_id
+union all
+select gabd.ad_date, gabd.campaign_name, gabd.adset_name, gabd.spend,
+gabd.impressions, gabd.reach, gabd.clicks, gabd.leads, gabd.value 
+from google_ads_basic_daily gabd
+)
+select  tgf.ad_date,
+		tgf.campaign_name,
+		sum (spend) as spend,
+		sum(impressions)as impressions,
+		sum(clicks) as clicks ,
+		sum(value) as value 
+from table_gabd_fabd tgf
+group by tgf.ad_date,tgf.campaign_name;
+
+/*Bonus task*/
+
+with join_table as (
+				select fabd.ad_date, fc.campaign_name, fa.adset_name, fabd.spend, fabd.impressions,
+				fabd.reach, fabd.clicks, fabd.leads, fabd.value 
+				from facebook_ads_basic_daily fabd
+				join facebook_campaign fc on fc.campaign_id = fabd.campaign_id
+				join facebook_adset fa using (adset_id)
+				union
+				select gabd.ad_date, gabd.campaign_name, gabd.adset_name, gabd.spend, gabd.impressions,
+				gabd.reach, gabd.clicks, gabd.leads, gabd.value 
+				from google_ads_basic_daily gabd
+)
+select jt.campaign_name, jt.adset_name,
+round ((sum(jt.value)-sum(jt.spend))/sum(jt.spend)::numeric,2)*100 as ROMI
+from join_table jt
+where (jt.spend)
+>0
+group by jt.campaign_name,jt.adset_name
+having sum (jt.spend) >=500000
+order by romi desc
+limit 1;
